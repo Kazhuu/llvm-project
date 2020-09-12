@@ -1186,9 +1186,12 @@ void LoopInterchangeTransform::restructureLoops(
     removeChildLoop(NewInner, NewOuter);
     OuterLoopParent->addChildLoop(NewOuter);
   } else {
+    // Remove outer loop child loop and exchange their place.
     removeChildLoop(NewInner, NewOuter);
     LI->changeTopLevelLoop(NewInner, NewOuter);
   }
+  // If original inner loop contains more inner loops. Move them to be part of
+  // the new inner loop instead.
   while (!NewOuter->empty())
     NewInner->addChildLoop(NewOuter->removeChildLoop(NewOuter->begin()));
   NewOuter->addChildLoop(NewInner);
@@ -1214,6 +1217,7 @@ void LoopInterchangeTransform::restructureLoops(
     if (BB == OuterHeader || BB == OuterLatch)
       NewInner->removeBlockFromLoop(BB);
     else
+      // Move original inner loop body BBs to be part of the new inner loop.
       LI->changeLoopFor(BB, NewInner);
   }
 
@@ -1240,12 +1244,15 @@ bool LoopInterchangeTransform::transform() {
       return false;
     }
 
+    // Find instruction in the inner loop body that increments the induction
+    // variable in the induction phi node.
     if (InductionPHI->getIncomingBlock(0) == InnerLoopPreHeader)
       InnerIndexVar = dyn_cast<Instruction>(InductionPHI->getIncomingValue(1));
     else
       InnerIndexVar = dyn_cast<Instruction>(InductionPHI->getIncomingValue(0));
 
-    // Ensure that InductionPHI is the first Phi node.
+    // Ensure that InductionPHI is the first Phi node. If not then move it to
+    // be the first phi node.
     if (&InductionPHI->getParent()->front() != InductionPHI)
       InductionPHI->moveBefore(&InductionPHI->getParent()->front());
 
@@ -1289,17 +1296,27 @@ bool LoopInterchangeTransform::transform() {
       }
     };
 
+    // Get condition instruction that compares induction variable at the loop
+    // latch and latch exit is based on.
     // FIXME: Should we interchange when we have a constant condition?
     Instruction *CondI = dyn_cast<Instruction>(
         cast<BranchInst>(InnerLoop->getLoopLatch()->getTerminator())
             ->getCondition());
     if (CondI)
       WorkList.insert(CondI);
+    // Copy condition instruction to new latch block. This also will copy
+    // instructions that are parameters to this instruction.
     MoveInstructions();
+    // Copy induction variable increment instruction to new latch too if not
+    // already there because of the above operations.
     WorkList.insert(cast<Instruction>(InnerIndexVar));
     MoveInstructions();
 
-    // Splits the inner loops phi nodes out into a separate basic block.
+    // Splits the inner loops phi nodes out into a separate basic block. After
+    // this inner loop body is in three parts. First part contains only phi
+    // nodes, middle one actual loop body instruction that do the work. The last
+    // one is new latch that contain only induction variable increment and
+    // comparison instructions.
     BasicBlock *InnerLoopHeader = InnerLoop->getHeader();
     SplitBlock(InnerLoopHeader, InnerLoopHeader->getFirstNonPHI(), DT, LI);
     LLVM_DEBUG(dbgs() << "splitting InnerLoopHeader done\n");
@@ -1473,6 +1490,9 @@ bool LoopInterchangeTransform::adjustLoopBranches() {
       !OuterLoopPreHeader->getUniquePredecessor())
     OuterLoopPreHeader =
         InsertPreheaderForLoop(OuterLoop, DT, LI, nullptr, true);
+  // If inner loop header, does not contain preheader, then add one. Usually
+  // inner loop header's predecessor is outer loop header.
+  // Adding preheaders make chancing edges easier.
   if (InnerLoopPreHeader == OuterLoop->getHeader())
     InnerLoopPreHeader =
         InsertPreheaderForLoop(InnerLoop, DT, LI, nullptr, true);
@@ -1537,6 +1557,10 @@ bool LoopInterchangeTransform::adjustLoopBranches() {
                   OuterLoopPreHeader, DTUpdates);
 
   // -------------Adjust loop latches-----------
+  // After header and preheader edge changes, change latch edges to match
+  // interchange.
+
+  // Get unique inner loop latch successor that is outside of the inner loop.
   if (InnerLoopLatchBI->getSuccessor(0) == InnerLoopHeader)
     InnerLoopLatchSuccessor = InnerLoopLatchBI->getSuccessor(1);
   else
