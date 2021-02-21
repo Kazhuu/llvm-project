@@ -8760,7 +8760,7 @@ VPlanPtr LoopVectorizationPlanner::buildVPlan(VFRange &Range) {
 
   SmallPtrSet<Instruction *, 1> DeadInstructions;
   VPlanTransforms::VPInstructionsToVPRecipes(
-      OrigLoop, Plan, Legal->getInductionVars(), DeadInstructions);
+      PSE, OrigLoop, Plan, Legal->getInductionVars(), DeadInstructions);
   return Plan;
 }
 

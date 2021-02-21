@@ -23,7 +23,7 @@ struct VPlanTransforms {
   /// Replaces the VPInstructions in \p Plan with corresponding
   /// widen recipes.
   static void VPInstructionsToVPRecipes(
-      Loop *OrigLoop, VPlanPtr &Plan,
+      PredicatedScalarEvolution &SPE, Loop *OrigLoop, VPlanPtr &Plan,
       LoopVectorizationLegality::InductionList &Inductions,
       SmallPtrSetImpl<Instruction *> &DeadInstructions);
 };
