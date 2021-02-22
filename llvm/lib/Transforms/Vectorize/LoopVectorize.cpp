@@ -5355,7 +5355,7 @@ void LoopVectorizationCostModel::collectLoopUniforms(ElementCount VF) {
     // A uniform memory op is itself uniform.  We exclude uniform stores
     // here as they demand the last lane, not the first one.
     if (isa<LoadInst>(I) && Legal->isUniformMemOp(*I)) {
-      assert(WideningDecision == CM_Scalarize);
+      assert(WideningDecision == CM_Scalarize || WideningDecision == CM_GatherScatter);
       return true;
     }
 
