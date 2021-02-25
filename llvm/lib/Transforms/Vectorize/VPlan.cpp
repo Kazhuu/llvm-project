@@ -599,7 +599,8 @@ void VPlan::execute(VPTransformState *State) {
   assert((EnableVPlanNativePath ||
           isa<UnreachableInst>(LastBB->getTerminator())) &&
          "Expected InnerLoop VPlan CFG to terminate with unreachable");
-  assert((!EnableVPlanNativePath || isa<BranchInst>(LastBB->getTerminator())) &&
+  assert((!EnableVPlanNativePath ||
+          (L->isInnermost() || isa<BranchInst>(LastBB->getTerminator()))) &&
          "Expected VPlan CFG to terminate with branch in NativePath");
   LastBB->getTerminator()->eraseFromParent();
   BranchInst::Create(VectorLatchBB, LastBB);

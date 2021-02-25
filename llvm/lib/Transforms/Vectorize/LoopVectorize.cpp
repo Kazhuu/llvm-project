@@ -1200,7 +1200,8 @@ public:
                              InterleavedAccessInfo &IAI)
       : ScalarEpilogueStatus(SEL), TheLoop(L), PSE(PSE), LI(LI), Legal(Legal),
         TTI(TTI), TLI(TLI), DB(DB), AC(AC), ORE(ORE), TheFunction(F),
-        Hints(Hints), InterleaveInfo(IAI) {}
+        Hints(Hints), InterleaveInfo(IAI),
+        UseVPlanNativePath(EnableVPlanNativePath && !L->isInnermost()) {}
 
   /// \return An upper bound for the vectorization factor, or None if
   /// vectorization and interleaving should be avoided up front.
@@ -1283,7 +1284,7 @@ public:
 
     // Cost model is not run in the VPlan-native path - return conservative
     // result until this changes.
-    if (EnableVPlanNativePath)
+    if (UseVPlanNativePath)
       return false;
 
     auto Scalars = InstsToScalarize.find(VF);
@@ -1299,7 +1300,7 @@ public:
 
     // Cost model is not run in the VPlan-native path - return conservative
     // result until this changes.
-    if (EnableVPlanNativePath)
+    if (UseVPlanNativePath)
       return false;
 
     auto UniformsPerVF = Uniforms.find(VF);
@@ -1315,7 +1316,7 @@ public:
 
     // Cost model is not run in the VPlan-native path - return conservative
     // result until this changes.
-    if (EnableVPlanNativePath)
+    if (UseVPlanNativePath)
       return false;
 
     auto ScalarsPerVF = Scalars.find(VF);
@@ -1375,7 +1376,7 @@ public:
     assert(VF.isVector() && "Expected VF to be a vector VF");
     // Cost model is not run in the VPlan-native path - return conservative
     // result until this changes.
-    if (EnableVPlanNativePath)
+    if (UseVPlanNativePath)
       return CM_GatherScatter;
 
     std::pair<Instruction *, ElementCount> InstOnVF = std::make_pair(I, VF);
@@ -1832,6 +1833,9 @@ public:
 
   /// Profitable vector factors.
   SmallVector<VectorizationFactor, 8> ProfitableVFs;
+
+  /// Controls whether the VPlan native path is used or not.
+  bool UseVPlanNativePath;
 };
 
 } // end namespace llvm
@@ -3039,7 +3043,7 @@ void InnerLoopVectorizer::emitSCEVChecks(Loop *L, BasicBlock *Bypass) {
 
 void InnerLoopVectorizer::emitMemRuntimeChecks(Loop *L, BasicBlock *Bypass) {
   // VPlan-native path does not do any analysis for runtime checks currently.
-  if (EnableVPlanNativePath)
+  if (Cost->UseVPlanNativePath)
     return;
 
   // Reuse existing vector loop preheader for runtime memory checks.
@@ -3801,7 +3805,7 @@ void InnerLoopVectorizer::fixVectorizedLoop(VPTransformState &State) {
 
   // Fix widened non-induction PHIs by setting up the PHI operands.
   if (OrigPHIsToFix.size()) {
-    assert(EnableVPlanNativePath &&
+    assert(Cost->UseVPlanNativePath &&
            "Unexpected non-induction PHIs for fixup in non VPlan-native path");
     fixNonInductionPHIs(State);
   }
@@ -4440,9 +4444,9 @@ void InnerLoopVectorizer::widenPHIInstruction(Instruction *PN,
                                               VPValue *StartVPV, VPValue *Def,
                                               VPTransformState &State) {
   PHINode *P = cast<PHINode>(PN);
-  if (EnableVPlanNativePath) {
-    // Currently we enter here in the VPlan-native path for non-induction
-    // PHIs where all control flow is uniform. We simply widen these PHIs.
+  if (Cost->UseVPlanNativePath) {
+    // We enter here in the VPlan-native path and when the loop is not the
+    // innermost loop. We handle non-induction PHIs here and simply widen them.
     // Create a vector phi with no operands - the vector phi operands will be
     // set at the end of vector code generation.
     Type *VecTy = (State.VF.isScalar())
